@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/test"
@@ -24,6 +25,29 @@ func TestNewList(t *testing.T) {
 		NewLabel("Template Object")},
 	}
 	template := newListItem(content, nil)
+
+	assert.Equal(t, 1000, list.Length())
+	assert.GreaterOrEqual(t, list.MinSize().Width, template.MinSize().Width)
+	assert.Equal(t, list.MinSize(), template.MinSize().Max(test.WidgetRenderer(list).(*listRenderer).scroller.MinSize()))
+	assert.Equal(t, float32(0), list.offsetY)
+}
+
+func TestNewListWithData(t *testing.T) {
+	data := binding.NewStringList()
+	for i := 0; i < 1000; i++ {
+		data.Append(fmt.Sprintf("Test Item %d", i))
+	}
+
+	list := NewListWithData(data,
+		func() fyne.CanvasObject {
+			return NewLabel("Template Object")
+		},
+		func(data binding.DataItem, item fyne.CanvasObject) {
+			item.(*Label).Bind(data.(binding.String))
+		},
+	)
+
+	template := NewLabel("Template Object")
 
 	assert.Equal(t, 1000, list.Length())
 	assert.GreaterOrEqual(t, list.MinSize().Width, template.MinSize().Width)
@@ -313,6 +337,19 @@ func TestList_DataChange(t *testing.T) {
 	test.AssertRendersToMarkup(t, "list/new_data.xml", w.Canvas())
 }
 
+func TestList_ItemDataChange(t *testing.T) {
+	test.NewApp()
+	defer test.NewApp()
+
+	list, _ := setupList(t)
+	children := list.scroller.Content.(*fyne.Container).Layout.(*listLayout).children
+	assert.Equal(t, children[0].(*listItem).child.(*fyne.Container).Objects[1].(*Label).Text, "Test Item 0")
+	changeData(list)
+	list.RefreshItem(0)
+	children = list.scroller.Content.(*fyne.Container).Layout.(*listLayout).children
+	assert.Equal(t, children[0].(*listItem).child.(*fyne.Container).Objects[1].(*Label).Text, "a")
+}
+
 func TestList_ThemeChange(t *testing.T) {
 	defer test.NewApp()
 	list, w := setupList(t)
@@ -505,37 +542,25 @@ func TestList_Focus(t *testing.T) {
 
 	canvas.FocusNext()
 	assert.NotNil(t, canvas.Focused())
-	assert.True(t, canvas.Focused().(*listItem).hovered)
-	assert.False(t, canvas.Focused().(*listItem).selected)
+	assert.Equal(t, 0, canvas.Focused().(*List).currentFocus)
 
 	children := list.scroller.Content.(*fyne.Container).Layout.(*listLayout).children
 	assert.True(t, children[0].(*listItem).hovered)
 	assert.False(t, children[1].(*listItem).hovered)
 	assert.False(t, children[2].(*listItem).hovered)
-	assert.Equal(t, children[0].(*listItem), canvas.Focused().(*listItem))
 
-	canvas.FocusNext()
-	assert.NotNil(t, canvas.Focused())
-	assert.True(t, canvas.Focused().(*listItem).hovered)
-	assert.False(t, canvas.Focused().(*listItem).selected)
+	list.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown})
 	assert.False(t, children[0].(*listItem).hovered)
 	assert.True(t, children[1].(*listItem).hovered)
 	assert.False(t, children[2].(*listItem).hovered)
-	assert.NotEqual(t, children[0].(*listItem), canvas.Focused().(*listItem))
-	assert.Equal(t, children[1].(*listItem), canvas.Focused().(*listItem))
 
-	canvas.FocusPrevious()
-	assert.NotNil(t, canvas.Focused())
-	assert.True(t, canvas.Focused().(*listItem).hovered)
-	assert.False(t, canvas.Focused().(*listItem).selected)
+	list.TypedKey(&fyne.KeyEvent{Name: fyne.KeyUp})
 	assert.True(t, children[0].(*listItem).hovered)
 	assert.False(t, children[1].(*listItem).hovered)
 	assert.False(t, children[2].(*listItem).hovered)
-	assert.Equal(t, children[0].(*listItem), canvas.Focused().(*listItem))
-	assert.NotEqual(t, children[1].(*listItem), canvas.Focused().(*listItem))
 
 	canvas.Focused().TypedKey(&fyne.KeyEvent{Name: fyne.KeySpace})
-	assert.True(t, canvas.Focused().(*listItem).selected)
+	assert.True(t, children[0].(*listItem).selected)
 }
 
 func createList(items int) *List {
@@ -577,4 +602,51 @@ func setupList(t *testing.T) (*List, fyne.Window) {
 	w.Resize(fyne.NewSize(200, 400))
 	test.AssertRendersToMarkup(t, "list/initial.xml", w.Canvas())
 	return list, w
+}
+
+func TestList_LimitUpdateItem(t *testing.T) {
+	app := test.NewApp()
+	w := app.NewWindow("")
+	printOut := ""
+	list := NewList(
+		func() int {
+			return 5
+		},
+		func() fyne.CanvasObject {
+			return NewLabel("")
+		},
+		func(id ListItemID, item fyne.CanvasObject) {
+			printOut += fmt.Sprintf("%d.", id)
+		},
+	)
+	w.SetContent(list)
+	w.ShowAndRun()
+	assert.Equal(t, "0.0.", printOut)
+	list.scrollTo(1)
+	assert.Equal(t, "0.0.1.", printOut)
+	list.scrollTo(2)
+	assert.Equal(t, "0.0.1.2.", printOut)
+}
+
+func TestList_RefreshUpdatesAllItems(t *testing.T) {
+	app := test.NewApp()
+	w := app.NewWindow("")
+	printOut := ""
+	list := NewList(
+		func() int {
+			return 1
+		},
+		func() fyne.CanvasObject {
+			return NewLabel("Test")
+		},
+		func(id ListItemID, item fyne.CanvasObject) {
+			printOut += fmt.Sprintf("%d.", id)
+		},
+	)
+	w.SetContent(list)
+	w.ShowAndRun()
+	assert.Equal(t, "0.", printOut)
+
+	list.Refresh()
+	assert.Equal(t, "0.0.", printOut)
 }

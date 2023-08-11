@@ -165,6 +165,14 @@ func (s *Select) SelectedIndex() int {
 	return -1 // not selected/found
 }
 
+// SetOptions updates the list of options available and refreshes the widget
+//
+// Since: 2.4
+func (s *Select) SetOptions(options []string) {
+	s.Options = options
+	s.Refresh()
+}
+
 // SetSelected sets the current option of the select widget
 func (s *Select) SetSelected(text string) {
 	for _, option := range s.Options {
@@ -244,6 +252,10 @@ func (s *Select) showPopUp() {
 	s.popUp.alignment = s.Alignment
 	s.popUp.ShowAtPosition(s.popUpPos())
 	s.popUp.Resize(fyne.NewSize(s.Size().Width, s.popUp.MinSize().Height))
+	s.popUp.OnDismiss = func() {
+		s.popUp.Hide()
+		s.popUp = nil
+	}
 }
 
 func (s *Select) tapAnimation() {

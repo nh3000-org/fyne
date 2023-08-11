@@ -16,8 +16,9 @@ import (
 // ListItemID uniquely identifies an item within a list.
 type ListItemID = int
 
-// Declare conformity with Widget interface.
+// Declare conformity with interfaces.
 var _ fyne.Widget = (*List)(nil)
+var _ fyne.Focusable = (*List)(nil)
 
 // List is a widget that pools list items for performance and
 // lays the items out in a vertical direction inside of a scroller.
@@ -33,6 +34,8 @@ type List struct {
 	OnSelected   func(id ListItemID)                         `json:"-"`
 	OnUnselected func(id ListItemID)                         `json:"-"`
 
+	currentFocus  ListItemID
+	focused       bool
 	scroller      *widget.Scroll
 	selected      []ListItemID
 	itemMin       fyne.Size
@@ -86,11 +89,43 @@ func (l *List) CreateRenderer() fyne.WidgetRenderer {
 	return newListRenderer(objects, l, l.scroller, layout)
 }
 
+// FocusGained is called after this List has gained focus.
+//
+// Implements: fyne.Focusable
+func (l *List) FocusGained() {
+	l.focused = true
+	l.scrollTo(l.currentFocus)
+	l.RefreshItem(l.currentFocus)
+}
+
+// FocusLost is called after this List has lost focus.
+//
+// Implements: fyne.Focusable
+func (l *List) FocusLost() {
+	l.focused = false
+	l.RefreshItem(l.currentFocus)
+}
+
 // MinSize returns the size that this widget should not shrink below.
 func (l *List) MinSize() fyne.Size {
 	l.ExtendBaseWidget(l)
 
 	return l.BaseWidget.MinSize()
+}
+
+// RefreshItem refreshes a single item, specified by the item ID passed in.
+//
+// Since: 2.4
+func (l *List) RefreshItem(id ListItemID) {
+	if l.scroller == nil {
+		return
+	}
+	l.BaseWidget.Refresh()
+	lo := l.scroller.Content.(*fyne.Container).Layout.(*listLayout)
+	visible := lo.visible
+	if item, ok := visible[id]; ok {
+		lo.setupListItem(item, id, l.focused && l.currentFocus == id)
+	}
 }
 
 // SetItemHeight supports changing the height of the specified list item. Items normally take the height of the template
@@ -110,7 +145,7 @@ func (l *List) SetItemHeight(id ListItemID, height float32) {
 	l.propertyLock.Unlock()
 
 	if refresh {
-		l.Refresh()
+		l.RefreshItem(id)
 	}
 }
 
@@ -152,7 +187,7 @@ func (l *List) Resize(s fyne.Size) {
 	}
 
 	l.offsetUpdated(l.scroller.Offset)
-	l.scroller.Content.(*fyne.Container).Layout.(*listLayout).updateList(true)
+	l.scroller.Content.(*fyne.Container).Layout.(*listLayout).updateList(false)
 }
 
 // Select add the item identified by the given ID to the selection.
@@ -217,6 +252,39 @@ func (l *List) ScrollToBottom() {
 func (l *List) ScrollToTop() {
 	l.scrollTo(0)
 	l.Refresh()
+}
+
+// TypedKey is called if a key event happens while this List is focused.
+//
+// Implements: fyne.Focusable
+func (l *List) TypedKey(event *fyne.KeyEvent) {
+	switch event.Name {
+	case fyne.KeySpace:
+		l.Select(l.currentFocus)
+	case fyne.KeyDown:
+		if f := l.Length; f != nil && l.currentFocus >= f()-1 {
+			return
+		}
+		l.RefreshItem(l.currentFocus)
+		l.currentFocus++
+		l.scrollTo(l.currentFocus)
+		l.RefreshItem(l.currentFocus)
+	case fyne.KeyUp:
+		if l.currentFocus <= 0 {
+			return
+		}
+		l.RefreshItem(l.currentFocus)
+		l.currentFocus--
+		l.scrollTo(l.currentFocus)
+		l.RefreshItem(l.currentFocus)
+	}
+}
+
+// TypedRune is called if a text event happens while this List is focused.
+//
+// Implements: fyne.Focusable
+func (l *List) TypedRune(_ rune) {
+	// intentionally left blank
 }
 
 // Unselect removes the item identified by the given ID from the selection.
@@ -344,12 +412,11 @@ func (l *listRenderer) Refresh() {
 	}
 	l.Layout(l.list.Size())
 	l.scroller.Refresh()
-	l.layout.Layout.(*listLayout).updateList(true)
+	l.layout.Layout.(*listLayout).updateList(false)
 	canvas.Refresh(l.list.super())
 }
 
 // Declare conformity with interfaces.
-var _ fyne.Focusable = (*listItem)(nil)
 var _ fyne.Widget = (*listItem)(nil)
 var _ fyne.Tappable = (*listItem)(nil)
 var _ desktop.Hoverable = (*listItem)(nil)
@@ -378,27 +445,12 @@ func (li *listItem) CreateRenderer() fyne.WidgetRenderer {
 	li.ExtendBaseWidget(li)
 
 	li.background = canvas.NewRectangle(theme.HoverColor())
+	li.background.CornerRadius = theme.SelectionRadiusSize()
 	li.background.Hide()
 
 	objects := []fyne.CanvasObject{li.background, li.child}
 
 	return &listItemRenderer{widget.NewBaseRenderer(objects), li}
-}
-
-// FocusGained is called after this listItem has gained focus.
-//
-// Implements: fyne.Focusable
-func (li *listItem) FocusGained() {
-	li.hovered = true
-	li.Refresh()
-}
-
-// FocusLost is called after this listItem has lost focus.
-//
-// Implements: fyne.Focusable
-func (li *listItem) FocusLost() {
-	li.hovered = false
-	li.Refresh()
 }
 
 // MinSize returns the size that this widget should not shrink below.
@@ -432,27 +484,6 @@ func (li *listItem) Tapped(*fyne.PointEvent) {
 	}
 }
 
-// TypedKey is called if a key event happens while this listItem is focused.
-//
-// Implements: fyne.Focusable
-func (li *listItem) TypedKey(event *fyne.KeyEvent) {
-	switch event.Name {
-	case fyne.KeySpace:
-		li.selected = true
-		li.Refresh()
-		if li.onTapped != nil {
-			li.onTapped()
-		}
-	}
-}
-
-// TypedRune is called if a text event happens while this listItem is focused.
-//
-// Implements: fyne.Focusable
-func (li *listItem) TypedRune(_ rune) {
-	// intentionally left blank
-}
-
 // Declare conformity with the WidgetRenderer interface.
 var _ fyne.WidgetRenderer = (*listItemRenderer)(nil)
 
@@ -475,6 +506,7 @@ func (li *listItemRenderer) Layout(size fyne.Size) {
 }
 
 func (li *listItemRenderer) Refresh() {
+	li.item.background.CornerRadius = theme.SelectionRadiusSize()
 	if li.item.selected {
 		li.item.background.FillColor = theme.SelectionColor()
 		li.item.background.Show()
@@ -556,7 +588,7 @@ func (l *listLayout) offsetUpdated(pos fyne.Position) {
 		return
 	}
 	l.list.offsetY = pos.Y
-	l.updateList(false)
+	l.updateList(true)
 }
 
 func (l *listLayout) setupListItem(li *listItem, id ListItemID, focus bool) {
@@ -579,11 +611,17 @@ func (l *listLayout) setupListItem(li *listItem, id ListItemID, focus bool) {
 		f(id, li.child)
 	}
 	li.onTapped = func() {
+		canvas := fyne.CurrentApp().Driver().CanvasForObject(l.list)
+		if canvas != nil {
+			canvas.Focus(l.list)
+		}
+
+		l.list.currentFocus = id
 		l.list.Select(id)
 	}
 }
 
-func (l *listLayout) updateList(refresh bool) {
+func (l *listLayout) updateList(newOnly bool) {
 	l.renderLock.Lock()
 	separatorThickness := theme.Padding()
 	width := l.list.Size().Width
@@ -632,16 +670,8 @@ func (l *listLayout) updateList(refresh bool) {
 
 	l.visible = visible
 
-	var focused fyne.Focusable
-	canvas := fyne.CurrentApp().Driver().CanvasForObject(l.list)
-	if canvas != nil {
-		focused = canvas.Focused()
-	}
 	for id, old := range wasVisible {
 		if _, ok := l.visible[id]; !ok {
-			if focused == old {
-				canvas.Focus(nil)
-			}
 			l.itemPool.Release(old)
 		}
 	}
@@ -654,8 +684,16 @@ func (l *listLayout) updateList(refresh bool) {
 	l.list.scroller.Content.(*fyne.Container).Objects = objects
 	l.renderLock.Unlock() // user code should not be locked
 
-	for row, obj := range visible {
-		l.setupListItem(obj, row, focused == obj)
+	if newOnly {
+		for row, obj := range visible {
+			if _, ok := wasVisible[row]; !ok {
+				l.setupListItem(obj, row, l.list.focused && l.list.currentFocus == row)
+			}
+		}
+	} else {
+		for row, obj := range visible {
+			l.setupListItem(obj, row, l.list.focused && l.list.currentFocus == row)
+		}
 	}
 }
 
