@@ -233,17 +233,11 @@ func (t *Tree) OpenBranch(uid TreeNodeID) {
 
 // Resize sets a new size for a widget.
 func (t *Tree) Resize(size fyne.Size) {
-	t.propertyLock.RLock()
-	s := t.size
-	t.propertyLock.RUnlock()
-
-	if s == size {
+	if size == t.size.Load() {
 		return
 	}
 
-	t.propertyLock.Lock()
-	t.size = size
-	t.propertyLock.Unlock()
+	t.size.Store(size)
 
 	t.Refresh() // trigger a redraw
 }
@@ -348,11 +342,17 @@ func (t *Tree) TypedKey(event *fyne.KeyEvent) {
 		t.ScrollTo(t.currentFocus)
 		t.RefreshItem(t.currentFocus)
 	case fyne.KeyLeft:
-		t.walk(t.Root, "", 0, func(id, p TreeNodeID, _ bool, _ int) {
-			if id == t.currentFocus && p != "" {
-				t.currentFocus = p
-			}
-		})
+		// If the current focus is on a branch which is open, just close it
+		if t.IsBranch(t.currentFocus) && t.IsBranchOpen(t.currentFocus) {
+			t.CloseBranch(t.currentFocus)
+		} else {
+			// Every other case should move the focus to the current parent node
+			t.walk(t.Root, "", 0, func(id, p TreeNodeID, _ bool, _ int) {
+				if id == t.currentFocus && p != "" {
+					t.currentFocus = p
+				}
+			})
+		}
 
 		t.RefreshItem(t.currentFocus)
 		t.ScrollTo(t.currentFocus)
@@ -586,17 +586,11 @@ func (c *treeContent) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (c *treeContent) Resize(size fyne.Size) {
-	c.propertyLock.RLock()
-	s := c.size
-	c.propertyLock.RUnlock()
-
-	if s == size {
+	if size == c.size.Load() {
 		return
 	}
 
-	c.propertyLock.Lock()
-	c.size = size
-	c.propertyLock.Unlock()
+	c.size.Store(size)
 
 	c.Refresh() // trigger a redraw
 }
@@ -877,12 +871,14 @@ func (n *treeNode) Tapped(*fyne.PointEvent) {
 	}
 
 	n.tree.Select(n.uid)
-	canvas := fyne.CurrentApp().Driver().CanvasForObject(n.tree)
-	if canvas != nil {
-		canvas.Focus(n.tree)
+	if !fyne.CurrentDevice().IsMobile() {
+		canvas := fyne.CurrentApp().Driver().CanvasForObject(n.tree)
+		if canvas != nil {
+			canvas.Focus(n.tree)
+		}
+		n.tree.currentFocus = n.uid
+		n.Refresh()
 	}
-	n.tree.currentFocus = n.uid
-	n.Refresh()
 }
 
 func (n *treeNode) partialRefresh() {
@@ -968,7 +964,7 @@ func (r *treeNodeRenderer) partialRefresh() {
 		r.background.Hide()
 	}
 	r.background.Refresh()
-	r.Layout(r.treeNode.size)
+	r.Layout(r.treeNode.Size())
 	canvas.Refresh(r.treeNode.super())
 }
 

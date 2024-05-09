@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/fyne-io/image/ico"
 
@@ -27,29 +28,30 @@ import (
 // influence of a garbage collector.
 var mainGoroutineID uint64
 
-var (
-	curWindow *window
-	isWayland = false
-)
+var curWindow *window
 
 // Declare conformity with Driver
 var _ fyne.Driver = (*gLDriver)(nil)
 
-var drawOnMainThread bool // A workaround on Apple M1, just use 1 thread until fixed upstream
+// A workaround on Apple M1/M2, just use 1 thread until fixed upstream.
+const drawOnMainThread bool = runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
+
+const doubleTapDelay = 300 * time.Millisecond
 
 type gLDriver struct {
-	windowLock sync.RWMutex
-	windows    []fyne.Window
-	device     *glDevice
-	done       chan interface{}
-	drawDone   chan interface{}
+	windowLock   sync.RWMutex
+	windows      []fyne.Window
+	done         chan struct{}
+	drawDone     chan struct{}
+	waitForStart chan struct{}
 
-	animation *animation.Runner
+	animation animation.Runner
 
 	currentKeyModifiers fyne.KeyModifier // desktop driver only
 
 	trayStart, trayStop func()     // shut down the system tray, if used
 	systrayMenu         *fyne.Menu // cache the menu set so we know when to refresh
+	systrayLock         sync.Mutex
 }
 
 func toOSIcon(icon []byte) ([]byte, error) {
@@ -89,25 +91,24 @@ func (d *gLDriver) AbsolutePositionForObject(co fyne.CanvasObject) fyne.Position
 }
 
 func (d *gLDriver) Device() fyne.Device {
-	if d.device == nil {
-		d.device = &glDevice{}
-	}
-
-	return d.device
+	return &glDevice{}
 }
 
 func (d *gLDriver) Quit() {
 	if curWindow != nil {
+		if f := fyne.CurrentApp().Lifecycle().(*intapp.Lifecycle).OnExitedForeground(); f != nil {
+			curWindow.QueueEvent(f)
+		}
 		curWindow = nil
 		if d.trayStop != nil {
 			d.trayStop()
 		}
-		fyne.CurrentApp().Lifecycle().(*intapp.Lifecycle).TriggerExitedForeground()
 	}
-	defer func() {
-		recover() // we could be called twice - no safe way to check if d.done is closed
-	}()
-	close(d.done)
+
+	// Only call close once to avoid panic.
+	if running.CompareAndSwap(true, false) {
+		close(d.done)
+	}
 }
 
 func (d *gLDriver) addWindow(w *window) {
@@ -124,18 +125,19 @@ func (d *gLDriver) focusPreviousWindow() {
 	wins := d.windows
 	d.windowLock.RUnlock()
 
-	var chosen fyne.Window
+	var chosen *window
 	for _, w := range wins {
-		if !w.(*window).visible {
+		win := w.(*window)
+		if !win.visible {
 			continue
 		}
-		chosen = w
-		if w.(*window).master {
+		chosen = win
+		if win.master {
 			break
 		}
 	}
 
-	if chosen == nil || chosen.(*window).view() == nil {
+	if chosen == nil || chosen.view() == nil {
 		return
 	}
 	chosen.RequestFocus()
@@ -150,12 +152,9 @@ func (d *gLDriver) windowList() []fyne.Window {
 func (d *gLDriver) initFailed(msg string, err error) {
 	logError(msg, err)
 
-	run.Lock()
-	if !run.flag {
-		run.Unlock()
+	if !running.Load() {
 		d.Quit()
 	} else {
-		run.Unlock()
 		os.Exit(1)
 	}
 }
@@ -165,18 +164,25 @@ func (d *gLDriver) Run() {
 		panic("Run() or ShowAndRun() must be called from main goroutine")
 	}
 
-	go catchTerm(d)
+	go d.catchTerm()
 	d.runGL()
 }
 
-// NewGLDriver sets up a new Driver instance implemented using the GLFW Go library and OpenGL bindings.
-func NewGLDriver() fyne.Driver {
-	d := new(gLDriver)
-	d.done = make(chan interface{})
-	d.drawDone = make(chan interface{})
-	d.animation = &animation.Runner{}
+func (d *gLDriver) DoubleTapDelay() time.Duration {
+	return doubleTapDelay
+}
 
+func (d *gLDriver) SetDisableScreenBlanking(bool) {
+	// TODO implement for Windows, macOS, X11 and Wayland
+}
+
+// NewGLDriver sets up a new Driver instance implemented using the GLFW Go library and OpenGL bindings.
+func NewGLDriver() *gLDriver {
 	repository.Register("file", intRepo.NewFileRepository())
 
-	return d
+	return &gLDriver{
+		done:         make(chan struct{}),
+		drawDone:     make(chan struct{}),
+		waitForStart: make(chan struct{}),
+	}
 }

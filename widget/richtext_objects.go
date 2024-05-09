@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/internal/scale"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 )
 
@@ -114,7 +113,7 @@ type HyperlinkSegment struct {
 	// OnTapped overrides the default `fyne.OpenURL` call when the link is tapped
 	//
 	// Since: 2.4
-	OnTapped func()
+	OnTapped func() `json:"-"`
 }
 
 // Inline returns true as hyperlinks are inside other elements.
@@ -132,7 +131,7 @@ func (h *HyperlinkSegment) Visual() fyne.CanvasObject {
 	link := NewHyperlink(h.Text, h.URL)
 	link.Alignment = h.Alignment
 	link.OnTapped = h.OnTapped
-	return &fyne.Container{Layout: &unpadTextWidgetLayout{}, Objects: []fyne.CanvasObject{link}}
+	return &fyne.Container{Layout: &unpadTextWidgetLayout{parent: link}, Objects: []fyne.CanvasObject{link}}
 }
 
 // Update applies the current state of this hyperlink segment to an existing visual.
@@ -323,8 +322,7 @@ func (p *ParagraphSegment) Unselect() {
 //
 // Since: 2.1
 type SeparatorSegment struct {
-	//lint:ignore U1000 This is required due to language design.
-	dummy uint8 // without this a pointer to SeparatorSegment will always be the same
+	_ bool // Without this a pointer to SeparatorSegment will always be the same.
 }
 
 // Inline returns false as a separator should be full width.
@@ -393,6 +391,8 @@ type RichTextSegment interface {
 type TextSegment struct {
 	Style RichTextStyle
 	Text  string
+
+	parent *RichText
 }
 
 // Inline should return true if this text can be included within other elements, or false if it creates a new block.
@@ -442,27 +442,29 @@ func (t *TextSegment) Unselect() {
 
 func (t *TextSegment) color() color.Color {
 	if t.Style.ColorName != "" {
-		return fyne.CurrentApp().Settings().Theme().Color(t.Style.ColorName, fyne.CurrentApp().Settings().ThemeVariant())
+		return theme.ColorForWidget(t.Style.ColorName, t.parent)
 	}
 
-	return theme.ForegroundColor()
+	return theme.ColorForWidget(theme.ColorNameForeground, t.parent)
 }
 
 func (t *TextSegment) size() float32 {
 	if t.Style.SizeName != "" {
-		return fyne.CurrentApp().Settings().Theme().Size(t.Style.SizeName)
+		i := theme.SizeForWidget(t.Style.SizeName, t.parent)
+		return i
 	}
 
-	return theme.TextSize()
+	i := theme.SizeForWidget(theme.SizeNameText, t.parent)
+	return i
 }
 
 type richImage struct {
 	BaseWidget
-	align      fyne.TextAlign
-	img        *canvas.Image
-	oldMin     fyne.Size
-	layout     *fyne.Container
-	pad1, pad2 fyne.CanvasObject
+	align  fyne.TextAlign
+	img    *canvas.Image
+	oldMin fyne.Size
+	layout *fyne.Container
+	min    fyne.Size
 }
 
 func newRichImage(u fyne.URI, align fyne.TextAlign) *richImage {
@@ -474,15 +476,7 @@ func newRichImage(u fyne.URI, align fyne.TextAlign) *richImage {
 }
 
 func (r *richImage) CreateRenderer() fyne.WidgetRenderer {
-	r.pad1 = layout.NewSpacer()
-	if r.align == fyne.TextAlignLeading {
-		r.pad1.Hide()
-	}
-	r.pad2 = layout.NewSpacer()
-	if r.align == fyne.TextAlignTrailing {
-		r.pad2.Hide()
-	}
-	r.layout = &fyne.Container{Layout: layout.NewHBoxLayout(), Objects: []fyne.CanvasObject{r.pad1, r.img, r.pad2}}
+	r.layout = &fyne.Container{Layout: &richImageLayout{r}, Objects: []fyne.CanvasObject{r.img}}
 	return NewSimpleRenderer(r.layout)
 }
 
@@ -497,32 +491,46 @@ func (r *richImage) MinSize() fyne.Size {
 	w := scale.ToScreenCoordinate(c, orig.Width)
 	h := scale.ToScreenCoordinate(c, orig.Height)
 	// we return size / 2 as this assumes a HiDPI / 2x image scaling
-	return fyne.NewSize(float32(w)/2, float32(h)/2)
+	r.min = fyne.NewSize(float32(w)/2, float32(h)/2)
+	return r.min
 }
 
 func (r *richImage) setAlign(a fyne.TextAlign) {
 	if r.layout != nil {
-		switch a {
-		case fyne.TextAlignLeading:
-			r.pad1.Hide()
-			r.pad2.Show()
-		case fyne.TextAlignTrailing:
-			r.pad1.Show()
-			r.pad2.Hide()
-		default:
-			r.pad1.Show()
-			r.pad2.Show()
-		}
 		r.layout.Refresh()
 	}
 	r.align = a
 }
 
+type richImageLayout struct {
+	r *richImage
+}
+
+func (r *richImageLayout) Layout(_ []fyne.CanvasObject, s fyne.Size) {
+	r.r.img.Resize(r.r.min)
+	gap := float32(0)
+
+	switch r.r.align {
+	case fyne.TextAlignCenter:
+		gap = (s.Width - r.r.min.Width) / 2
+	case fyne.TextAlignTrailing:
+		gap = s.Width - r.r.min.Width
+	}
+
+	r.r.img.Move(fyne.NewPos(gap, 0))
+}
+
+func (r *richImageLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return r.r.min
+}
+
 type unpadTextWidgetLayout struct {
+	parent fyne.Widget
 }
 
 func (u *unpadTextWidgetLayout) Layout(o []fyne.CanvasObject, s fyne.Size) {
-	pad := theme.InnerPadding() * -1
+	innerPad := theme.SizeForWidget(theme.SizeNameInnerPadding, u.parent)
+	pad := innerPad * -1
 	pad2 := pad * -2
 
 	o[0].Move(fyne.NewPos(pad, pad))
@@ -530,6 +538,7 @@ func (u *unpadTextWidgetLayout) Layout(o []fyne.CanvasObject, s fyne.Size) {
 }
 
 func (u *unpadTextWidgetLayout) MinSize(o []fyne.CanvasObject) fyne.Size {
-	pad := theme.InnerPadding() * 2
+	innerPad := theme.SizeForWidget(theme.SizeNameInnerPadding, u.parent)
+	pad := innerPad * 2
 	return o[0].MinSize().Subtract(fyne.NewSize(pad, pad))
 }

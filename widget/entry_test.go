@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/internal/driver"
@@ -44,6 +45,21 @@ func TestEntry_Binding(t *testing.T) {
 	assert.Equal(t, "Typed", entry.Text)
 }
 
+func TestEntry_Binding_Bounce(t *testing.T) {
+	entry := widget.NewEntry()
+	entry.SetText("Init")
+	assert.Equal(t, "Init", entry.Text)
+	waitForBinding() // this time it is the de-echo before binding
+
+	str := binding.NewString()
+	entry.Bind(str)
+	str.Set("1")
+	time.Sleep(10 * time.Millisecond)
+	str.Set("2")
+	waitForBinding()
+	assert.Equal(t, "2", entry.Text)
+}
+
 func TestEntry_Binding_Replace(t *testing.T) {
 	entry := widget.NewEntry()
 	str := binding.NewString()
@@ -56,6 +72,7 @@ func TestEntry_Binding_Replace(t *testing.T) {
 	assert.Equal(t, "nt", entry.SelectedText())
 
 	test.Type(entry, "g")
+	waitForBinding()
 	assert.Equal(t, "Cogent", entry.Text)
 }
 
@@ -431,12 +448,14 @@ func TestEntry_MinSize(t *testing.T) {
 	assert.True(t, min.Height > theme.InnerPadding())
 
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = container.ScrollNone
 	entry.Refresh()
 	assert.Greater(t, entry.MinSize().Width, min.Width)
 
 	min = entry.MinSize()
 	entry.ActionItem = canvas.NewCircle(color.Black)
-	assert.Equal(t, min.Add(fyne.NewSize(theme.IconInlineSize()+theme.Padding(), 0)), entry.MinSize())
+	entry.Refresh()
+	assert.Equal(t, min.Add(fyne.NewSize(theme.IconInlineSize()+theme.LineSpacing(), 0)), entry.MinSize())
 }
 
 func TestEntryMultiline_MinSize(t *testing.T) {
@@ -450,6 +469,7 @@ func TestEntryMultiline_MinSize(t *testing.T) {
 	assert.True(t, min.Height > theme.InnerPadding())
 
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = container.ScrollNone
 	entry.Refresh()
 	assert.Greater(t, entry.MinSize().Width, min.Width)
 
@@ -459,6 +479,7 @@ func TestEntryMultiline_MinSize(t *testing.T) {
 
 	min = entry.MinSize()
 	entry.ActionItem = canvas.NewCircle(color.Black)
+	entry.Refresh()
 	assert.Equal(t, min.Add(fyne.NewSize(theme.IconInlineSize()+theme.Padding(), 0)), entry.MinSize())
 }
 
@@ -531,6 +552,15 @@ func TestEntry_Notify(t *testing.T) {
 	}
 	entry.SetText("Test")
 
+	assert.True(t, changed)
+
+	changed = false
+	entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDelete})
+	assert.True(t, changed)
+
+	changed = false
+	entry.CursorColumn = 1
+	entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyBackspace})
 	assert.True(t, changed)
 }
 
@@ -987,7 +1017,7 @@ func TestEntry_PasteUnicode(t *testing.T) {
 }
 
 func TestEntry_Placeholder(t *testing.T) {
-	entry := &widget.Entry{}
+	entry := &widget.Entry{Scroll: container.ScrollNone}
 	entry.Text = "Text"
 	entry.PlaceHolder = "Placehold"
 
@@ -1284,6 +1314,17 @@ func TestEntry_SelectSnapUp(t *testing.T) {
 	assert.Equal(t, 5, e.CursorColumn)
 	test.AssertRendersToMarkup(t, "entry/selection_snap_up.xml", c)
 	assert.Equal(t, "", e.SelectedText())
+}
+
+func TestEntry_Select_TripleTap(t *testing.T) {
+	e, _ := setupSelection(t, false)
+	e.MultiLine = true
+	assert.Equal(t, 1, e.CursorRow)
+	assert.Equal(t, "sti", e.SelectedText())
+	test.DoubleTap(e)
+	time.Sleep(50 * time.Millisecond)
+	e.MouseDown(&desktop.MouseEvent{PointEvent: fyne.PointEvent{Position: fyne.NewPos(1, 1)}})
+	assert.Equal(t, "Testing", e.SelectedText())
 }
 
 func TestEntry_SelectedText(t *testing.T) {
@@ -1654,34 +1695,42 @@ func TestEntry_TappedSecondary(t *testing.T) {
 func TestEntry_TextWrap(t *testing.T) {
 	for name, tt := range map[string]struct {
 		multiLine bool
+		scroll    container.ScrollDirection
 		want      string
 		wrap      fyne.TextWrap
 	}{
 		"single line WrapOff": {
-			want: "entry/wrap_single_line_off.xml",
+			scroll: container.ScrollNone,
+			want:   "entry/wrap_single_line_off.xml",
 		},
 		"single line Truncate": {
-			wrap: fyne.TextTruncate,
+			wrap: fyne.TextWrap(fyne.TextTruncateClip),
 			want: "entry/wrap_single_line_truncate.xml",
 		},
-		// Disallowed - fallback to TextWrapTruncate (horizontal)
+		"single line Scroll": {
+			scroll: container.ScrollHorizontalOnly,
+			wrap:   fyne.TextWrapOff,
+			want:   "entry/wrap_single_line_truncate.xml",
+		},
+		// Disallowed - fallback to Scrollling (horizontal)
 		"single line WrapBreak": {
 			wrap: fyne.TextWrapBreak,
 			want: "entry/wrap_single_line_truncate.xml",
 		},
-		// Disallowed - fallback to TextWrapTruncate (horizontal)
+		// Disallowed - fallback to Scrolling (horizontal)
 		"single line WrapWord": {
 			wrap: fyne.TextWrapWord,
 			want: "entry/wrap_single_line_truncate.xml",
 		},
 		"multi line WrapOff": {
+			scroll:    container.ScrollNone,
 			multiLine: true,
 			want:      "entry/wrap_multi_line_off.xml",
 		},
 		// Disallowed - fallback to TextWrapOff
 		"multi line Truncate": {
 			multiLine: true,
-			wrap:      fyne.TextTruncate,
+			wrap:      fyne.TextWrap(fyne.TextTruncateClip),
 			want:      "entry/wrap_multi_line_truncate.xml",
 		},
 		"multi line WrapBreak": {
@@ -1702,6 +1751,7 @@ func TestEntry_TextWrap(t *testing.T) {
 
 			c.Focus(e)
 			e.Wrapping = tt.wrap
+			e.Scroll = tt.scroll
 			if tt.multiLine {
 				e.SetText("A long text on short words w/o NLs or LFs.")
 			} else {
@@ -1719,10 +1769,11 @@ func TestEntry_TextWrap_Changed(t *testing.T) {
 
 	c.Focus(e)
 	e.Wrapping = fyne.TextWrapOff
+	e.Scroll = container.ScrollNone
 	e.SetText("Testing Wrapping")
 	test.AssertRendersToMarkup(t, "entry/wrap_single_line_off.xml", c)
 
-	e.Wrapping = fyne.TextTruncate
+	e.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
 	e.Refresh()
 	test.AssertRendersToMarkup(t, "entry/wrap_single_line_truncate.xml", c)
 
@@ -1742,6 +1793,7 @@ func TestMultiLineEntry_MinSize(t *testing.T) {
 	assert.True(t, multiMin.Height > singleMin.Height)
 
 	multi.MultiLine = false
+	multi.Refresh()
 	multiMin = multi.MinSize()
 	assert.Equal(t, singleMin.Height, multiMin.Height)
 }
@@ -1923,12 +1975,50 @@ func TestMultiLineEntry_EnterWithSelection(t *testing.T) {
 func TestEntry_CarriageReturn(t *testing.T) {
 	entry := widget.NewMultiLineEntry()
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = container.ScrollNone
 	entry.SetText("\r\n\r")
 	w := test.NewWindow(entry)
 	w.Resize(fyne.NewSize(64, 64))
 	test.AssertImageMatches(t, "entry/carriage_return_empty.png", w.Canvas().Capture())
 	entry.SetText("\rH\re\rl\rl\ro\r\n\rW\ro\rr\rl\rd\r!\r")
 	test.AssertImageMatches(t, "entry/carriage_return_text.png", w.Canvas().Capture())
+}
+
+func TestEntry_UndoRedo(t *testing.T) {
+	e, window := setupImageTest(t, true)
+	window.Resize(fyne.NewSize(128, 128))
+	defer teardownImageTest(window)
+	c := window.Canvas()
+
+	c.Focus(e)
+	runes := "The undo/\nredo function allows you to efficiently fix"
+	for _, r := range runes {
+		e.TypedRune(r)
+	}
+	test.AssertImageMatches(t, "entry/undo_redo_initial.png", window.Canvas().Capture())
+
+	for _, r := range " mistkaes" {
+		e.TypedRune(r)
+	}
+	test.AssertImageMatches(t, "entry/undo_redo_mistkaes.png", window.Canvas().Capture())
+
+	e.TypedShortcut(&fyne.ShortcutUndo{})
+	test.AssertImageMatches(t, "entry/undo_redo_initial.png", window.Canvas().Capture())
+
+	for _, r := range " mistakes" {
+		e.TypedRune(r)
+	}
+	test.AssertImageMatches(t, "entry/undo_redo_mistake_corrected.png", window.Canvas().Capture())
+
+	for i := 0; i < 5; i++ {
+		e.TypedShortcut(&fyne.ShortcutUndo{})
+	}
+	test.AssertImageMatches(t, "entry/undo_redo_5undo.png", window.Canvas().Capture())
+
+	for i := 0; i < 5; i++ {
+		e.TypedShortcut(&fyne.ShortcutRedo{})
+	}
+	test.AssertImageMatches(t, "entry/undo_redo_mistake_corrected.png", window.Canvas().Capture())
 }
 
 const (
@@ -1990,9 +2080,9 @@ func setupImageTest(t *testing.T, multiLine bool) (*widget.Entry, fyne.Window) {
 
 	var entry *widget.Entry
 	if multiLine {
-		entry = &widget.Entry{MultiLine: true, Wrapping: fyne.TextWrapWord}
+		entry = &widget.Entry{MultiLine: true, Wrapping: fyne.TextWrapWord, Scroll: container.ScrollNone}
 	} else {
-		entry = &widget.Entry{Wrapping: fyne.TextWrapOff}
+		entry = &widget.Entry{Wrapping: fyne.TextWrapOff, Scroll: container.ScrollNone}
 	}
 	w := test.NewWindow(entry)
 	w.Resize(fyne.NewSize(150, 200))
@@ -2090,7 +2180,7 @@ func clickPrimary(c fyne.Canvas, obj desktop.Mouseable, ev *fyne.PointEvent) {
 	}
 }
 
-func handleFocusOnTap(c fyne.Canvas, obj interface{}) {
+func handleFocusOnTap(c fyne.Canvas, obj any) {
 	if c == nil {
 		return
 	}

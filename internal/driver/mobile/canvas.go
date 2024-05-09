@@ -7,16 +7,13 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/internal/app"
 	"fyne.io/fyne/v2/internal/driver"
 	"fyne.io/fyne/v2/internal/driver/common"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-)
-
-const (
-	doubleClickDelay = 500 // ms (maximum interval between clicks for double click detection)
 )
 
 var _ fyne.Canvas = (*mobileCanvas)(nil)
@@ -29,8 +26,8 @@ type mobileCanvas struct {
 	scale            float32
 	size             fyne.Size
 
-	touched       map[int]mobile.Touchable
-	padded, debug bool
+	touched map[int]mobile.Touchable
+	padded  bool
 
 	onTypedRune func(rune)
 	onTypedKey  func(event *fyne.KeyEvent)
@@ -49,7 +46,6 @@ type mobileCanvas struct {
 // NewCanvas creates a new gomobile mobileCanvas. This is a mobileCanvas that will render on a mobile device using OpenGL.
 func NewCanvas() fyne.Canvas {
 	ret := &mobileCanvas{padded: true}
-	ret.debug = fyne.CurrentApp().Settings().BuildType() == fyne.BuildDebug
 	ret.scale = fyne.CurrentDevice().SystemScaleForWindow(nil) // we don't need a window parameter on mobile
 	ret.touched = make(map[int]mobile.Touchable)
 	ret.lastTapDownPos = make(map[int]fyne.Position)
@@ -73,12 +69,16 @@ func (c *mobileCanvas) InteractiveArea() (fyne.Position, fyne.Size) {
 	scale := fyne.CurrentDevice().SystemScaleForWindow(nil) // we don't need a window parameter on mobile
 
 	dev, ok := fyne.CurrentDevice().(*device)
-	if !ok || dev.safeWidth == 0 || dev.safeHeight == 0 {
+	if !ok {
 		return fyne.NewPos(0, 0), c.Size() // running in test mode
 	}
 
-	return fyne.NewPos(float32(dev.safeLeft)/scale, float32(dev.safeTop)/scale),
-		fyne.NewSize(float32(dev.safeWidth)/scale, float32(dev.safeHeight)/scale)
+	safeLeft := float32(dev.safeLeft) / scale
+	safeTop := float32(dev.safeTop) / scale
+	safeRight := float32(dev.safeRight) / scale
+	safeBottom := float32(dev.safeBottom) / scale
+	return fyne.NewPos(safeLeft, safeTop),
+		c.size.SubtractWidthHeight(safeLeft+safeRight, safeTop+safeBottom)
 }
 
 func (c *mobileCanvas) OnTypedKey() func(*fyne.KeyEvent) {
@@ -167,6 +167,9 @@ func (c *mobileCanvas) setMenu(menu fyne.CanvasObject) {
 }
 
 func (c *mobileCanvas) setWindowHead(head fyne.CanvasObject) {
+	if c.padded {
+		head = container.NewPadded(head)
+	}
 	c.windowHead = head
 	c.SetMobileWindowHeadTree(head)
 }
@@ -192,7 +195,11 @@ func (c *mobileCanvas) sizeContent(size fyne.Size) {
 	if c.windowHead != nil {
 		topHeight := c.windowHead.MinSize().Height
 
-		if len(c.windowHead.(*fyne.Container).Objects) > 1 {
+		chromeBox := c.windowHead.(*fyne.Container)
+		if c.padded {
+			chromeBox = chromeBox.Objects[0].(*fyne.Container) // the padded container
+		}
+		if len(chromeBox.Objects) > 1 {
 			c.windowHead.Resize(fyne.NewSize(areaSize.Width, topHeight))
 			offset = fyne.NewPos(0, topHeight)
 			areaSize = areaSize.Subtract(offset)
@@ -293,7 +300,7 @@ func (c *mobileCanvas) tapMove(pos fyne.Position, tapID int,
 		}
 	}
 
-	ev := new(fyne.DragEvent)
+	ev := &fyne.DragEvent{}
 	draggedObjDelta := c.dragStart.Subtract(c.dragging.(fyne.CanvasObject).Position())
 	ev.Position = pos.Subtract(c.dragOffset).Add(draggedObjDelta)
 	ev.Dragged = fyne.Delta{DX: deltaX, DY: deltaY}
@@ -345,9 +352,10 @@ func (c *mobileCanvas) tapUp(pos fyne.Position, tapID int,
 		c.touched[tapID] = nil
 	}
 
-	ev := new(fyne.PointEvent)
-	ev.Position = objPos
-	ev.AbsolutePosition = pos
+	ev := &fyne.PointEvent{
+		Position:         objPos,
+		AbsolutePosition: pos,
+	}
 
 	if duration < tapSecondaryDelay {
 		_, doubleTap := co.(fyne.DoubleTappable)
@@ -373,7 +381,7 @@ func (c *mobileCanvas) tapUp(pos fyne.Position, tapID int,
 
 func (c *mobileCanvas) waitForDoubleTap(co fyne.CanvasObject, ev *fyne.PointEvent, tapCallback func(fyne.Tappable, *fyne.PointEvent), doubleTapCallback func(fyne.DoubleTappable, *fyne.PointEvent)) {
 	var ctx context.Context
-	ctx, c.touchCancelFunc = context.WithDeadline(context.TODO(), time.Now().Add(time.Millisecond*doubleClickDelay))
+	ctx, c.touchCancelFunc = context.WithDeadline(context.TODO(), time.Now().Add(tapDoubleDelay))
 	defer c.touchCancelFunc()
 	<-ctx.Done()
 	if c.touchTapCount == 2 && c.touchLastTapped == co {

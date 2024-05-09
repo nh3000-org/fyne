@@ -23,11 +23,11 @@ type DocTabs struct {
 
 	Items []*TabItem
 
-	CreateTab      func() *TabItem
-	CloseIntercept func(*TabItem)
-	OnClosed       func(*TabItem)
-	OnSelected     func(*TabItem)
-	OnUnselected   func(*TabItem)
+	CreateTab      func() *TabItem `json:"-"`
+	CloseIntercept func(*TabItem)  `json:"-"`
+	OnClosed       func(*TabItem)  `json:"-"`
+	OnSelected     func(*TabItem)  `json:"-"`
+	OnUnselected   func(*TabItem)  `json:"-"`
 
 	current         int
 	location        TabLocation
@@ -67,6 +67,8 @@ func (t *DocTabs) CreateRenderer() fyne.WidgetRenderer {
 	}
 	r.action = r.buildAllTabsButton()
 	r.create = r.buildCreateTabsButton()
+	r.tabs = t
+
 	r.box = NewHBox(r.create, r.action)
 	r.scroller.OnScrolled = func(offset fyne.Position) {
 		r.updateIndicator(false)
@@ -319,18 +321,7 @@ func (r *docTabsRenderer) buildTabButtons(count int, buttons *fyne.Container) {
 	buttons.Objects = nil
 
 	var iconPos buttonIconPosition
-	if fyne.CurrentDevice().IsMobile() {
-		cells := count
-		if cells == 0 {
-			cells = 1
-		}
-		if r.docTabs.location == TabLocationTop || r.docTabs.location == TabLocationBottom {
-			buttons.Layout = layout.NewGridLayoutWithColumns(cells)
-		} else {
-			buttons.Layout = layout.NewGridLayoutWithRows(cells)
-		}
-		iconPos = buttonIconTop
-	} else if r.docTabs.location == TabLocationLeading || r.docTabs.location == TabLocationTrailing {
+	if r.docTabs.location == TabLocationLeading || r.docTabs.location == TabLocationTrailing {
 		buttons.Layout = layout.NewVBoxLayout()
 		iconPos = buttonIconTop
 	} else {
@@ -363,6 +354,13 @@ func (r *docTabsRenderer) buildTabButtons(count int, buttons *fyne.Container) {
 
 func (r *docTabsRenderer) scrollToSelected() {
 	buttons := r.scroller.Content.(*fyne.Container)
+
+	// https://github.com/fyne-io/fyne/issues/3909
+	// very dirty temporary fix to this crash!
+	if r.docTabs.current < 0 || r.docTabs.current >= len(buttons.Objects) {
+		return
+	}
+
 	button := buttons.Objects[r.docTabs.current]
 	pos := button.Position()
 	size := button.Size()
@@ -388,7 +386,7 @@ func (r *docTabsRenderer) scrollToSelected() {
 func (r *docTabsRenderer) updateIndicator(animate bool) {
 	if r.docTabs.current < 0 {
 		r.indicator.FillColor = color.Transparent
-		r.indicator.Refresh()
+		r.moveIndicator(fyne.NewPos(0, 0), fyne.NewSize(0, 0), animate)
 		return
 	}
 

@@ -10,6 +10,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var globalProgressRenderer fyne.WidgetRenderer
+
+func BenchmarkProgressbar(b *testing.B) {
+	var renderer fyne.WidgetRenderer
+	widget := &ProgressBar{}
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		renderer = widget.CreateRenderer()
+	}
+
+	// Avoid having the value optimized out by the compiler.
+	globalProgressRenderer = renderer
+}
+
 func TestNewProgressBarWithData(t *testing.T) {
 	val := binding.NewFloat()
 	val.Set(0.4)
@@ -96,6 +111,11 @@ func TestProgressRenderer_Layout_Overflow(t *testing.T) {
 func TestProgressRenderer_ApplyTheme(t *testing.T) {
 	bar := NewProgressBar()
 	render := test.WidgetRenderer(bar).(*progressRenderer)
+
+	oldLabelColor := render.label.Color
+	render.Refresh()
+	newLabelColor := render.label.Color
+	assert.Equal(t, oldLabelColor, newLabelColor)
 
 	textSize := render.label.TextSize
 	customTextSize := textSize

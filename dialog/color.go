@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	col "fyne.io/fyne/v2/internal/color"
+	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -105,7 +106,7 @@ func (p *ColorPickerDialog) updateUI() {
 	if w := p.win; w != nil {
 		w.Hide()
 	}
-	p.dialog.dismiss = &widget.Button{Text: "Cancel", Icon: theme.CancelIcon(),
+	p.dialog.dismiss = &widget.Button{Text: lang.L("Cancel"), Icon: theme.CancelIcon(),
 		OnTapped: p.dialog.Hide,
 	}
 	if p.Advanced {
@@ -113,7 +114,7 @@ func (p *ColorPickerDialog) updateUI() {
 			p.color = c
 		})
 
-		advancedItem := widget.NewAccordionItem("Advanced", p.picker)
+		advancedItem := widget.NewAccordionItem(lang.L("Advanced"), p.picker)
 		if p.advanced != nil {
 			advancedItem.Open = p.advanced.Items[0].Open
 		}
@@ -129,7 +130,7 @@ func (p *ColorPickerDialog) updateUI() {
 			p.advanced,
 		)
 
-		confirm := &widget.Button{Text: "Confirm", Icon: theme.ConfirmIcon(), Importance: widget.HighImportance,
+		confirm := &widget.Button{Text: lang.L("Confirm"), Icon: theme.ConfirmIcon(), Importance: widget.HighImportance,
 			OnTapped: func() {
 				p.selectColor(p.color)
 			},
@@ -185,6 +186,12 @@ func newCheckeredBackground(radial bool) *canvas.Raster {
 		rect := f
 		f = func(x, y, w, h int) color.Color {
 			r, t := cmplx.Polar(complex(float64(x)-float64(w)/2, float64(y)-float64(h)/2))
+			limit := math.Min(float64(w), float64(h)) / 2.0
+			if r > limit {
+				// Out of bounds
+				return &color.NRGBA{A: 0}
+			}
+
 			x = int((t + math.Pi) / (2 * math.Pi) * checkeredNumberOfRings * checkeredBoxSize)
 			y = int(r)
 			return rect(x, y, 0, 0)

@@ -94,8 +94,10 @@ func loadIcons() []iconInfo {
 		{"SearchReplaceIcon", theme.SearchReplaceIcon()},
 
 		{"CheckButtonIcon", theme.CheckButtonIcon()},
+		{"CheckButtonFillIcon", theme.CheckButtonFillIcon()},
 		{"CheckButtonCheckedIcon", theme.CheckButtonCheckedIcon()},
 		{"RadioButtonIcon", theme.RadioButtonIcon()},
+		{"RadioButtonFillIcon", theme.RadioButtonFillIcon()},
 		{"RadioButtonCheckedIcon", theme.RadioButtonCheckedIcon()},
 
 		{"ColorAchromaticIcon", theme.ColorAchromaticIcon()},
@@ -145,9 +147,9 @@ func loadIcons() []iconInfo {
 		{"ViewRefreshIcon", theme.ViewRefreshIcon()},
 		{"VisibilityIcon", theme.VisibilityIcon()},
 		{"VisibilityOffIcon", theme.VisibilityOffIcon()},
-		{"ZoomFitIcon", theme.ZoomFitIcon()},
-		{"ZoomInIcon", theme.ZoomInIcon()},
-		{"ZoomOutIcon", theme.ZoomOutIcon()},
+		{"ViewZoomFitIcon", theme.ZoomFitIcon()},
+		{"ViewZoomInIcon", theme.ZoomInIcon()},
+		{"ViewZoomOutIcon", theme.ZoomOutIcon()},
 
 		{"MoreHorizontalIcon", theme.MoreHorizontalIcon()},
 		{"MoreVerticalIcon", theme.MoreVerticalIcon()},

@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	col "fyne.io/fyne/v2/internal/color"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -43,6 +44,9 @@ type dialog struct {
 	content fyne.CanvasObject
 	dismiss *widget.Button
 	parent  fyne.Window
+
+	// allows derived dialogs to inject logic that runs before Show()
+	beforeShowHook func()
 }
 
 func (d *dialog) Hide() {
@@ -57,6 +61,9 @@ func (d *dialog) MinSize() fyne.Size {
 }
 
 func (d *dialog) Show() {
+	if d.beforeShowHook != nil {
+		d.beforeShowHook()
+	}
 	if !d.desiredSize.IsZero() {
 		d.win.Resize(d.desiredSize)
 	}
@@ -108,8 +115,15 @@ func (d *dialog) hideWithResponse(resp bool) {
 func (d *dialog) create(buttons fyne.CanvasObject) {
 	label := widget.NewLabelWithStyle(d.title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
+	var image fyne.CanvasObject
+	if d.icon != nil {
+		image = &canvas.Image{Resource: d.icon}
+	} else {
+		image = &layout.Spacer{}
+	}
+
 	content := container.New(&dialogLayout{d: d},
-		&canvas.Image{Resource: d.icon},
+		image,
 		newThemedBackground(),
 		d.content,
 		buttons,
@@ -126,14 +140,10 @@ func (d *dialog) setButtons(buttons fyne.CanvasObject) {
 
 // The method .create() needs to be called before the dialog cna be shown.
 func newDialog(title, message string, icon fyne.Resource, callback func(bool), parent fyne.Window) *dialog {
-	d := &dialog{content: newCenterLabel(message), title: title, icon: icon, parent: parent}
+	d := &dialog{content: newCenterWrappedLabel(message), title: title, icon: icon, parent: parent}
 	d.callback = callback
 
 	return d
-}
-
-func newCenterLabel(message string) fyne.CanvasObject {
-	return &widget.Label{Text: message, Alignment: fyne.TextAlignCenter}
 }
 
 // ===============================================================

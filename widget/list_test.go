@@ -240,6 +240,26 @@ func TestList_ScrollToTop(t *testing.T) {
 	assert.Equal(t, offset, list.scroller.Offset.Y)
 }
 
+func TestList_ScrollOffset(t *testing.T) {
+	list := createList(10)
+	list.Resize(fyne.NewSize(20, 15))
+
+	offset := float32(25)
+	list.ScrollToOffset(25)
+	assert.Equal(t, offset, list.GetScrollOffset())
+
+	list.ScrollToOffset(-2)
+	assert.Equal(t, float32(0), list.GetScrollOffset())
+
+	list.ScrollToOffset(1000)
+	assert.LessOrEqual(t, list.GetScrollOffset(), float32(500) /*upper bound on content height*/)
+
+	// list viewport is larger than content size
+	list.Resize(fyne.NewSize(100, 500))
+	list.ScrollToOffset(20)
+	assert.Equal(t, float32(0), list.GetScrollOffset()) // doesn't scroll
+}
+
 func TestList_Selection(t *testing.T) {
 	list := createList(1000)
 	children := list.scroller.Content.(*fyne.Container).Layout.(*listLayout).children
@@ -275,22 +295,24 @@ func TestList_Select(t *testing.T) {
 	assert.Equal(t, float32(0), list.offsetY)
 	list.Select(50)
 	assert.Equal(t, 988, int(list.offsetY))
-	visible := list.scroller.Content.(*fyne.Container).Layout.(*listLayout).visible
-	assert.Equal(t, visible[50].background.FillColor, theme.SelectionColor())
-	assert.True(t, visible[50].background.Visible())
+	lo := list.scroller.Content.(*fyne.Container).Layout.(*listLayout)
+	visible50, _ := lo.searchVisible(lo.visible, 50)
+	assert.Equal(t, visible50.background.FillColor, theme.SelectionColor())
+	assert.True(t, visible50.background.Visible())
 
 	list.Select(5)
 	assert.Equal(t, 195, int(list.offsetY))
-	visible = list.scroller.Content.(*fyne.Container).Layout.(*listLayout).visible
-	assert.Equal(t, visible[5].background.FillColor, theme.SelectionColor())
-	assert.True(t, visible[5].background.Visible())
+	visible5, _ := lo.searchVisible(lo.visible, 5)
+	assert.Equal(t, visible5.background.FillColor, theme.SelectionColor())
+	assert.True(t, visible5.background.Visible())
 
 	list.Select(6)
 	assert.Equal(t, 195, int(list.offsetY))
-	visible = list.scroller.Content.(*fyne.Container).Layout.(*listLayout).visible
-	assert.False(t, visible[5].background.Visible())
-	assert.Equal(t, visible[6].background.FillColor, theme.SelectionColor())
-	assert.True(t, visible[6].background.Visible())
+	visible5, _ = lo.searchVisible(lo.visible, 5)
+	visible6, _ := lo.searchVisible(lo.visible, 6)
+	assert.False(t, visible5.background.Visible())
+	assert.Equal(t, visible6.background.FillColor, theme.SelectionColor())
+	assert.True(t, visible6.background.Visible())
 }
 
 func TestList_Unselect(t *testing.T) {

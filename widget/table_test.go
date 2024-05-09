@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/driver/desktop"
+	internalTest "fyne.io/fyne/v2/internal/test"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 
@@ -86,7 +87,7 @@ func TestTable_ChangeTheme(t *testing.T) {
 func TestTable_Filled(t *testing.T) {
 	test.NewApp()
 	defer test.NewApp()
-	test.ApplyTheme(t, theme.LightTheme())
+	test.ApplyTheme(t, internalTest.LightTheme(theme.DefaultTheme()))
 
 	table := NewTable(
 		func() (int, int) { return 5, 5 },
@@ -646,6 +647,36 @@ func TestTable_Selection(t *testing.T) {
 	assert.Equal(t, 1, selectedRow)
 }
 
+func TestTable_Selection_OnHeader(t *testing.T) {
+	test.NewApp()
+	defer test.NewApp()
+
+	table := NewTableWithHeaders(
+		func() (int, int) { return 5, 5 },
+		func() fyne.CanvasObject {
+			return NewLabel("placeholder")
+		},
+		func(id TableCellID, c fyne.CanvasObject) {
+			text := fmt.Sprintf("Cell %d, %d", id.Row, id.Col)
+			c.(*Label).SetText(text)
+		})
+	assert.Nil(t, table.selectedCell)
+
+	w := test.NewWindow(table)
+	defer w.Close()
+	w.Resize(fyne.NewSize(180, 180))
+
+	selected := false
+	table.OnSelected = func(TableCellID) {
+		selected = true
+	}
+	test.TapCanvas(w.Canvas(), fyne.NewPos(35, 5))
+	assert.False(t, selected)
+
+	test.TapCanvas(w.Canvas(), fyne.NewPos(5, 58))
+	assert.False(t, selected)
+}
+
 func TestTable_Select(t *testing.T) {
 	test.NewApp()
 	defer test.NewApp()
@@ -687,7 +718,7 @@ func TestTable_Select(t *testing.T) {
 func TestTable_SetColumnWidth(t *testing.T) {
 	test.NewApp()
 	defer test.NewApp()
-	test.ApplyTheme(t, theme.LightTheme())
+	test.ApplyTheme(t, internalTest.LightTheme(theme.DefaultTheme()))
 
 	table := NewTable(
 		func() (int, int) { return 5, 5 },
@@ -767,7 +798,7 @@ func TestTable_SetColumnWidth_Dragged(t *testing.T) {
 func TestTable_SetRowHeight(t *testing.T) {
 	test.NewApp()
 	defer test.NewApp()
-	test.ApplyTheme(t, theme.LightTheme())
+	test.ApplyTheme(t, internalTest.LightTheme(theme.DefaultTheme()))
 
 	table := NewTable(
 		func() (int, int) { return 5, 5 },

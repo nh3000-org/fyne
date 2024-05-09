@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/cmd/fyne_demo/data"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/validation"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -34,7 +35,7 @@ var (
 	progress    *widget.ProgressBar
 	fprogress   *widget.ProgressBar
 	infProgress *widget.ProgressBarInfinite
-	endProgress chan interface{}
+	endProgress chan any
 )
 
 func makeAccordionTab(_ fyne.Window) fyne.CanvasObject {
@@ -50,8 +51,58 @@ func makeAccordionTab(_ fyne.Window) fyne.CanvasObject {
 			Detail: widget.NewLabel("Three"),
 		},
 	)
+	ac.MultiOpen = true
 	ac.Append(widget.NewAccordionItem("D", &widget.Entry{Text: "Four"}))
 	return ac
+}
+
+func makeActivityTab(win fyne.Window) fyne.CanvasObject {
+	a1 := widget.NewActivity()
+	a2 := widget.NewActivity()
+
+	var button *widget.Button
+	start := func() {
+		button.Disable()
+		a1.Start()
+		a1.Show()
+		a2.Start()
+		a2.Show()
+
+		defer func() {
+			go func() {
+				time.Sleep(time.Second * 10)
+				a1.Stop()
+				a1.Hide()
+				a2.Stop()
+				a2.Hide()
+
+				button.Enable()
+			}()
+		}()
+	}
+
+	button = widget.NewButton("Animate", start)
+	start()
+
+	return container.NewCenter(container.NewGridWithColumns(1,
+		container.NewCenter(container.NewVBox(
+			container.NewHBox(widget.NewLabel("Working..."), a1),
+			container.NewStack(button, a2))),
+		container.NewCenter(widget.NewButton("Show dialog", func() {
+			prop := canvas.NewRectangle(color.Transparent)
+			prop.SetMinSize(fyne.NewSize(50, 50))
+
+			a3 := widget.NewActivity()
+			d := dialog.NewCustomWithoutButtons("Please wait...", container.NewStack(prop, a3), win)
+			a3.Start()
+			d.Show()
+
+			go func() {
+				time.Sleep(time.Second * 5)
+				a3.Stop()
+				d.Hide()
+			}()
+		}))))
 }
 
 func makeButtonTab(_ fyne.Window) fyne.CanvasObject {
@@ -194,14 +245,14 @@ This styled row should also wrap as expected, but only *when required*.
 	rich.Scroll = container.ScrollBoth
 	rich.Segments[2].(*widget.ImageSegment).Alignment = fyne.TextAlignTrailing
 
-	radioAlign := widget.NewRadioGroup([]string{"Text Alignment Leading", "Text Alignment Center", "Text Alignment Trailing"}, func(s string) {
+	radioAlign := widget.NewRadioGroup([]string{"Leading", "Center", "Trailing"}, func(s string) {
 		var align fyne.TextAlign
 		switch s {
-		case "Text Alignment Leading":
+		case "Leading":
 			align = fyne.TextAlignLeading
-		case "Text Alignment Center":
+		case "Center":
 			align = fyne.TextAlignCenter
-		case "Text Alignment Trailing":
+		case "Trailing":
 			align = fyne.TextAlignTrailing
 		}
 
@@ -220,24 +271,28 @@ This styled row should also wrap as expected, but only *when required*.
 		hyperlink.Refresh()
 		rich.Refresh()
 	})
-	radioAlign.SetSelected("Text Alignment Leading")
+	radioAlign.Horizontal = true
+	radioAlign.SetSelected("Leading")
 
-	radioWrap := widget.NewRadioGroup([]string{"Text Wrapping Off", "Text Wrapping Truncate", "Text Wrapping Break", "Text Wrapping Word"}, func(s string) {
+	radioWrap := widget.NewRadioGroup([]string{"Off", "Scroll", "Break", "Word"}, func(s string) {
 		var wrap fyne.TextWrap
+		scroll := container.ScrollBoth
 		switch s {
-		case "Text Wrapping Off":
+		case "Off":
 			wrap = fyne.TextWrapOff
-		case "Text Wrapping Truncate":
-			wrap = fyne.TextTruncate
-		case "Text Wrapping Break":
+			scroll = container.ScrollNone
+		case "Scroll":
+			wrap = fyne.TextWrapOff
+		case "Break":
 			wrap = fyne.TextWrapBreak
-		case "Text Wrapping Word":
+		case "Word":
 			wrap = fyne.TextWrapWord
 		}
 
 		label.Wrapping = wrap
 		hyperlink.Wrapping = wrap
 		entryLoremIpsum.Wrapping = wrap
+		entryLoremIpsum.Scroll = scroll
 		rich.Wrapping = wrap
 
 		label.Refresh()
@@ -245,14 +300,36 @@ This styled row should also wrap as expected, but only *when required*.
 		entryLoremIpsum.Refresh()
 		rich.Refresh()
 	})
-	radioWrap.SetSelected("Text Wrapping Word")
+	radioWrap.Horizontal = true
+	radioWrap.SetSelected("Word")
+
+	radioTrunc := widget.NewRadioGroup([]string{"Off", "Clip", "Ellipsis"}, func(s string) {
+		var trunc fyne.TextTruncation
+		switch s {
+		case "Off":
+			trunc = fyne.TextTruncateOff
+		case "Clip":
+			trunc = fyne.TextTruncateClip
+		case "Ellipsis":
+			trunc = fyne.TextTruncateEllipsis
+		}
+
+		label.Truncation = trunc
+		rich.Truncation = trunc
+
+		label.Refresh()
+		hyperlink.Refresh()
+		entryLoremIpsum.Refresh()
+		rich.Refresh()
+	})
+	radioTrunc.Horizontal = true
+	radioTrunc.SetSelected("Off")
 
 	fixed := container.NewVBox(
-		container.NewHBox(
-			radioAlign,
-			layout.NewSpacer(),
-			radioWrap,
-		),
+		widget.NewForm(
+			widget.NewFormItem("Text Alignment", radioAlign),
+			widget.NewFormItem("Wrapping", radioWrap),
+			widget.NewFormItem("Truncation", radioTrunc)),
 		label,
 		hyperlink,
 	)
@@ -274,6 +351,8 @@ func makeInputTab(_ fyne.Window) fyne.CanvasObject {
 	disabledRadio := widget.NewRadioGroup([]string{"Disabled radio"}, func(string) {})
 	disabledRadio.Disable()
 
+	disabledSlider := widget.NewSlider(0, 1000)
+	disabledSlider.Disable()
 	return container.NewVBox(
 		widget.NewSelect([]string{"Option 1", "Option 2", "Option 3"}, func(s string) { fmt.Println("selected", s) }),
 		selectEntry,
@@ -282,7 +361,8 @@ func makeInputTab(_ fyne.Window) fyne.CanvasObject {
 		checkGroup,
 		radio,
 		disabledRadio,
-		widget.NewSlider(0, 1000),
+		container.NewBorder(nil, nil, widget.NewLabel("Slider"), nil, widget.NewSlider(0, 1000)),
+		container.NewBorder(nil, nil, widget.NewLabel("Disabled slider"), nil, disabledSlider),
 	)
 }
 
@@ -297,7 +377,7 @@ func makeProgressTab(_ fyne.Window) fyne.CanvasObject {
 	}
 
 	infProgress = widget.NewProgressBarInfinite()
-	endProgress = make(chan interface{}, 1)
+	endProgress = make(chan any, 1)
 	startProgress()
 
 	return container.NewVBox(

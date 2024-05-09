@@ -6,7 +6,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 )
 
 func TestFileItem_Name(t *testing.T) {
@@ -26,7 +29,7 @@ func TestFileItem_Name(t *testing.T) {
 	assert.Equal(t, "noext", item.name)
 
 	// Test that the extension remains for the list view.
-	f.view = listView
+	f.view = ListView
 
 	item = f.newFileItem(storage.NewFileURI("/path/to/filename.txt"), false, false)
 	assert.Equal(t, "filename.txt", item.name)
@@ -55,7 +58,7 @@ func TestFileItem_FolderName(t *testing.T) {
 	assert.Equal(t, ".maybeHidden", item.name)
 
 	// Test that the extension remains for the list view.
-	f.view = listView
+	f.view = ListView
 	item = f.newFileItem(storage.NewFileURI("/path/to/myapp.app/"), true, false)
 	assert.Equal(t, "myapp.app", item.name)
 }
@@ -105,4 +108,21 @@ func TestNewFileItem_ParentFolder(t *testing.T) {
 
 	assert.Equal(t, "(Parent)", item.name)
 	assert.Equal(t, parentDir.String()+"/", f.data[0].String())
+}
+
+func TestFileItem_Wrap(t *testing.T) {
+	f := &fileDialog{file: &FileDialog{}}
+	_ = f.makeUI()
+	item := f.newFileItem(storage.NewFileURI("/path/to/filename.txt"), false, false)
+	item.Resize(item.MinSize())
+	label := test.WidgetRenderer(item).(*fileItemRenderer).text
+	assert.Equal(t, "filename", label.Text)
+	texts := test.WidgetRenderer(label).Objects()
+	assert.Equal(t, 1, len(texts))
+
+	item.setLocation(storage.NewFileURI("/path/to/averylongfilename.svg"), false, false)
+	rich := test.WidgetRenderer(label).Objects()[0].(*widget.RichText)
+	texts = test.WidgetRenderer(rich).Objects()
+	assert.Equal(t, 2, len(texts))
+	assert.Equal(t, "averylon", texts[0].(*canvas.Text).Text)
 }

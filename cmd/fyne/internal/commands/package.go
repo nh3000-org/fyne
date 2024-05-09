@@ -21,7 +21,7 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"fyne.io/fyne/v2/cmd/fyne/internal/metadata"
+	"fyne.io/fyne/v2/internal/metadata"
 )
 
 const (
@@ -31,7 +31,7 @@ const (
 
 // Package returns the cli command for packaging fyne applications
 func Package() *cli.Command {
-	p := &Packager{appData: &appData{}}
+	p := NewPackager()
 
 	return &cli.Command{
 		Name:        "package",
@@ -41,7 +41,7 @@ func Package() *cli.Command {
 			&cli.StringFlag{
 				Name:        "target",
 				Aliases:     []string{"os"},
-				Usage:       "The mobile platform to target (android, android/arm, android/arm64, android/amd64, android/386, ios, iossimulator, wasm, gopherjs, web).",
+				Usage:       "The mobile platform to target (android, android/arm, android/arm64, android/amd64, android/386, ios, iossimulator, wasm, js, web).",
 				Destination: &p.os,
 			},
 			&cli.StringFlag{
@@ -138,6 +138,11 @@ type Packager struct {
 
 	customMetadata      keyValueFlag
 	linuxAndBSDMetadata *metadata.LinuxAndBSD
+}
+
+// NewPackager returns a command that can handle the packaging a GUI apps built using Fyne from local source code.
+func NewPackager() *Packager {
+	return &Packager{appData: &appData{}}
 }
 
 // AddFlags adds the flags for interacting with the package command.
@@ -243,7 +248,7 @@ func (p *Packager) buildPackage(runner runner, tags []string) ([]string, error) 
 	}
 
 	bGopherJS := &Builder{
-		os:      "gopherjs",
+		os:      "js",
 		srcdir:  p.srcDir,
 		target:  p.exe + ".js",
 		release: p.release,
@@ -322,7 +327,7 @@ func (p *Packager) doPackage(runner runner) error {
 		return p.packageIOS(p.os, tags)
 	case "wasm":
 		return p.packageWasm()
-	case "gopherjs":
+	case "js":
 		return p.packageGopherJS()
 	case "web":
 		return p.packageWeb()
@@ -370,6 +375,7 @@ func (p *Packager) validate() (err error) {
 	os.Chdir(p.srcDir)
 
 	p.appData.CustomMetadata = p.customMetadata.m
+	p.appData.Release = p.release
 
 	data, err := metadata.LoadStandard(p.srcDir)
 	if err == nil {
@@ -378,7 +384,6 @@ func (p *Packager) validate() (err error) {
 			data.Details.Icon = util.MakePathRelativeTo(p.srcDir, data.Details.Icon)
 		}
 
-		p.appData.Release = p.release
 		p.appData.mergeMetadata(data)
 		p.linuxAndBSDMetadata = data.LinuxAndBSD
 	}

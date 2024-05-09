@@ -22,9 +22,9 @@ type AppTabs struct {
 	Items []*TabItem
 
 	// Deprecated: Use `OnSelected func(*TabItem)` instead.
-	OnChanged    func(*TabItem)
-	OnSelected   func(*TabItem)
-	OnUnselected func(*TabItem)
+	OnChanged    func(*TabItem) `json:"-"`
+	OnSelected   func(*TabItem) `json:"-"`
+	OnUnselected func(*TabItem) `json:"-"`
 
 	current         int
 	location        TabLocation
@@ -57,6 +57,7 @@ func (t *AppTabs) CreateRenderer() fyne.WidgetRenderer {
 		appTabs: t,
 	}
 	r.action = r.buildOverflowTabsButton()
+	r.tabs = t
 
 	// Initially setup the tab bar to only show one tab, all others will be in overflow.
 	// When the widget is laid out, and we know the size, the tab bar will be updated to show as many as can fit.
@@ -395,6 +396,7 @@ func (r *appTabsRenderer) updateIndicator(animate bool) {
 		r.indicator.Hide()
 		return
 	}
+	r.indicator.Show()
 
 	var selectedPos fyne.Position
 	var selectedSize fyne.Size

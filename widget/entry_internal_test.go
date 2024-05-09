@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/internal/cache"
+	intWidget "fyne.io/fyne/v2/internal/widget"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 )
@@ -31,6 +32,7 @@ func TestEntry_Cursor(t *testing.T) {
 func TestEntry_DoubleTapped(t *testing.T) {
 	entry := NewEntry()
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = intWidget.ScrollNone
 	entry.SetText("The quick brown fox\njumped    over the lazy dog\n")
 	entry.Resize(entry.MinSize())
 
@@ -40,11 +42,15 @@ func TestEntry_DoubleTapped(t *testing.T) {
 	entry.DoubleTapped(ev)
 	assert.Equal(t, "quick", entry.SelectedText())
 
+	entry.doubleTappedAtUnixMillis = 0 // make sure we don't register a triple tap next
+
 	// select the whitespace after 'quick'
 	ev = getClickPosition("The quick", 0)
 	clickPrimary(entry, ev)
 	entry.DoubleTapped(ev)
 	assert.Equal(t, " ", entry.SelectedText())
+
+	entry.doubleTappedAtUnixMillis = 0
 
 	// select all whitespace after 'jumped'
 	ev = getClickPosition("jumped  ", 1)
@@ -80,6 +86,7 @@ func TestEntry_DoubleTapped_AfterCol(t *testing.T) {
 func TestEntry_DragSelect(t *testing.T) {
 	entry := NewEntry()
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = intWidget.ScrollNone
 	entry.SetText("The quick brown fox jumped\nover the lazy dog\nThe quick\nbrown fox\njumped over the lazy dog\n")
 	entry.Resize(entry.MinSize())
 
@@ -104,6 +111,7 @@ func TestEntry_DragSelect(t *testing.T) {
 func TestEntry_DragSelectLargeStep(t *testing.T) {
 	entry := NewEntry()
 	entry.Wrapping = fyne.TextWrapOff
+	entry.Scroll = intWidget.ScrollNone
 	entry.SetText("The quick brown fox jumped\nover the lazy dog\nThe quick\nbrown fox\njumped over the lazy dog\n")
 	entry.Resize(entry.MinSize())
 
@@ -271,12 +279,29 @@ func TestEntry_EraseSelection(t *testing.T) {
 	keyPress(&fyne.KeyEvent{Name: fyne.KeyRight})
 	keyPress(&fyne.KeyEvent{Name: fyne.KeyRight})
 
-	e.eraseSelection()
-	e.updateText(e.textProvider().String())
+	_ = e.Theme()
+	e.eraseSelectionAndUpdate()
+	e.updateText(e.textProvider().String(), false)
 	assert.Equal(t, "Testing\nTeng\nTesting", e.Text)
 	a, b := e.selection()
 	assert.Equal(t, -1, a)
 	assert.Equal(t, -1, b)
+}
+
+func TestEntry_CallbackLocking(t *testing.T) {
+	e := &Entry{}
+	called := 0
+	e.OnChanged = func(_ string) {
+		e.propertyLock.Lock()
+		called++ // Just to not have an empty critical section.
+		e.propertyLock.Unlock()
+	}
+
+	_ = e.Theme()
+	test.Type(e, "abc123")
+	e.selectAll()
+	e.TypedKey(&fyne.KeyEvent{Name: fyne.KeyBackspace})
+	assert.Equal(t, 7, called)
 }
 
 func TestEntry_MouseClickAndDragOutsideText(t *testing.T) {
@@ -362,11 +387,23 @@ func TestEntry_PasteFromClipboard_MultilineWrapping(t *testing.T) {
 	assert.Equal(t, 7, entry.CursorColumn)
 }
 
+func TestEntry_PlaceholderTextStyle(t *testing.T) {
+	e := NewEntry()
+	e.TextStyle = fyne.TextStyle{Bold: true, Italic: true}
+
+	w := test.NewWindow(e)
+	assert.Equal(t, e.TextStyle, e.placeholder.Segments[0].(*TextSegment).Style.TextStyle)
+
+	w.Canvas().Focus(e)
+	assert.Equal(t, e.TextStyle, e.placeholder.Segments[0].(*TextSegment).Style.TextStyle)
+}
+
 func TestEntry_Tab(t *testing.T) {
 	e := NewEntry()
 	e.TextStyle.Monospace = true
 	e.SetText("a\n\tb\nc")
 
+	_ = e.Theme()
 	r := cache.Renderer(e.textProvider()).(*textRenderer)
 	assert.Equal(t, 3, len(r.Objects()))
 	assert.Equal(t, "a", r.Objects()[0].(*canvas.Text).Text)
